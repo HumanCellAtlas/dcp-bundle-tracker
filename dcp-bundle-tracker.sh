@@ -62,7 +62,7 @@ while true; do
     "$requestUrl" \
     -H "accept: application/json" \
     -H "Content-Type: application/json" \
-    -d "{ \"es_query\": { \"query\": { \"match\": { \"files.project_json.provenance.document_id\": \"${p}\" } } } }" \
+    -d "{ \"es_query\": { \"query\": { \"bool\": { \"must\": [ { \"match\": { \"files.project_json.provenance.document_id\": \"${p}\" } } ], \"must_not\": [ { \"match\": { \"files.analysis_process_json.process_type.text\": \"analysis\" } } ] } } } }" \
     -D ${headers_stash_file} | \
     jq '.results[].bundle_fqid' -r)
   if [ -n "$dssBundleFqids" ]; then
