@@ -20,7 +20,7 @@ if [ -z "${p}" ]; then
 fi
 
 page_size="500"
-headers_stash_file="headers.txt"
+headers_stash_file=".headers.txt"
 echo "" > $headers_stash_file
 
 printf "Retrieving ingest exported bundles for project \'%s\'." ${p}
@@ -53,35 +53,52 @@ echo "$ingestBundleUuids" | uniq | sort > ingest-bundle-uuids.txt
 
 printf "Retrieving DSS bundles for project \'%s\'." ${p}
 
-printf "."
-dssBundleFqids=$(curl -sX POST \
-  "https://dss.staging.data.humancellatlas.org/v1/search?output_format=summary&replica=aws&per_page=500" \
-  -H "accept: application/json" \
-  -H "Content-Type: application/json" \
-  -d "{ \"es_query\": { \"query\": { \"match\": { \"files.project_json.provenance.document_id\": \"${p}\" } } } }" \
-  -D ${headers_stash_file} | \
-  jq '.results[].bundle_fqid' -r)
+requestUrl="https://dss.staging.data.humancellatlas.org/v1/search?output_format=summary&replica=aws&per_page=500"
 
-  # figure out link from headers stash file
+dssBundleFqids=""
+while true; do
+  printf "."
+  response=$(curl -sX POST \
+    "$requestUrl" \
+    -H "accept: application/json" \
+    -H "Content-Type: application/json" \
+    -d "{ \"es_query\": { \"query\": { \"match\": { \"files.project_json.provenance.document_id\": \"${p}\" } } } }" \
+    -D ${headers_stash_file} | \
+    jq '.results[].bundle_fqid' -r)
+  if [ -n "$dssBundleFqids" ]; then
+    dssBundleFqids+=$'\n'
+  fi
+  dssBundleFqids+=$response
+
+  next=""
   while read -r line; do
     if [[ $line = link:* ]]; then
-      request=$(echo $line | sed 's/^[^<]*<//' | sed 's/>.*$//')
-      # echo $request
+      next=$(echo $line | sed 's/^[^<]*<//' | sed 's/>.*$//')
     fi
   done < $headers_stash_file
 
-# while true; do
-#   if [ ! $next ]; then
-#     printf "done!\n"
-#     break;
-#   fi
-# done
+  if [ -z $next ]; then
+    $next
+    printf "done!\n"
+    break;
+  else
+    requestUrl=$next
+  fi
+done
+rm $headers_stash_file
 
-printf "done!\n"
+printf "Producing diff report..."
 
-for item in $dssBundleFqids; do
+dssBundleUuids=""
+for item in ${dssBundleFqids}; do
+  if [ -n "$dssBundleUuids" ]; then
+    dssBundleUuids+=$'\n'
+  fi
   dssBundleUuids+=$(echo $item | sed 's/\..*$//')
-  dssBundleUuids+=$'\n'
 done
 
+echo "$dssBundleFqids" > dss-bundle-fqids.txt
 echo "$dssBundleUuids" | uniq | sort > dss-bundle-uuids.txt
+
+diff -Bwy --suppress-common-lines ingest-bundle-uuids.txt dss-bundle-uuids.txt > diff-report.txt
+printf "done!\n"
