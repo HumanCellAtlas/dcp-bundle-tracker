@@ -97,7 +97,6 @@ for item in ${dssBundleFqids}; do
   dssBundleUuids+=$(echo $item | sed 's/\..*$//')
 done
 
-echo "$dssBundleFqids" > dss-bundle-fqids.txt
 echo "$dssBundleUuids" | uniq | sort > dss-bundle-uuids.txt
 
 diff -Bwy --suppress-common-lines ingest-bundle-uuids.txt dss-bundle-uuids.txt > diff-report.txt
