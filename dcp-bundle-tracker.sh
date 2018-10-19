@@ -51,24 +51,22 @@ done
 
 echo "$ingestBundleUuids" | uniq | sort > ingest-bundle-uuids.txt
 
-printf "Retrieving DSS bundles for project \'%s\'." ${p}
-
-requestUrl="https://dss.staging.data.humancellatlas.org/v1/search?output_format=summary&replica=aws&per_page=500"
-
-dssBundleFqids=""
+awsRequestUrl="https://dss.staging.data.humancellatlas.org/v1/search?output_format=summary&replica=aws&per_page=500"
+awsDssBundleFqids=""
+printf "Retrieving AWS DSS bundles for project \'%s\'." ${p}
 while true; do
   printf "."
   response=$(curl -sX POST \
-    "$requestUrl" \
+    "$awsRequestUrl" \
     -H "accept: application/json" \
     -H "Content-Type: application/json" \
     -d "{ \"es_query\": { \"query\": { \"bool\": { \"must\": [ { \"match\": { \"files.project_json.provenance.document_id\": \"${p}\" } } ], \"must_not\": [ { \"match\": { \"files.analysis_process_json.process_type.text\": \"analysis\" } } ] } } } }" \
     -D ${headers_stash_file} | \
     jq '.results[].bundle_fqid' -r)
-  if [ -n "$dssBundleFqids" ]; then
-    dssBundleFqids+=$'\n'
+  if [ -n "$awsDssBundleFqids" ]; then
+    awsDssBundleFqids+=$'\n'
   fi
-  dssBundleFqids+=$response
+  awsDssBundleFqids+=$response
 
   next=""
   while read -r line; do
@@ -82,22 +80,68 @@ while true; do
     printf "done!\n"
     break;
   else
-    requestUrl=$next
+    awsRequestUrl=$next
   fi
 done
 rm $headers_stash_file
 
-printf "Producing diff report..."
-
-dssBundleUuids=""
-for item in ${dssBundleFqids}; do
-  if [ -n "$dssBundleUuids" ]; then
-    dssBundleUuids+=$'\n'
+gcpRequestUrl="https://dss.staging.data.humancellatlas.org/v1/search?output_format=summary&replica=gcp&per_page=500"
+gcpDssBundleFqids=""
+printf "Retrieving GCP DSS bundles for project \'%s\'." ${p}
+while true; do
+  printf "."
+  response=$(curl -sX POST \
+    "$gcpRequestUrl" \
+    -H "accept: application/json" \
+    -H "Content-Type: application/json" \
+    -d "{ \"es_query\": { \"query\": { \"bool\": { \"must\": [ { \"match\": { \"files.project_json.provenance.document_id\": \"${p}\" } } ], \"must_not\": [ { \"match\": { \"files.analysis_process_json.process_type.text\": \"analysis\" } } ] } } } }" \
+    -D ${headers_stash_file} | \
+    jq '.results[].bundle_fqid' -r)
+  if [ -n "$gcpDssBundleFqids" ]; then
+    gcpDssBundleFqids+=$'\n'
   fi
-  dssBundleUuids+=$(echo $item | sed 's/\..*$//')
+  gcpDssBundleFqids+=$response
+
+  next=""
+  while read -r line; do
+    if [[ $line = link:* ]]; then
+      next=$(echo $line | sed 's/^[^<]*<//' | sed 's/>.*$//')
+    fi
+  done < $headers_stash_file
+
+  if [ -z $next ]; then
+    $next
+    printf "done!\n"
+    break;
+  else
+    gcpRequestUrl=$next
+  fi
+done
+rm $headers_stash_file
+
+printf "Producing diff reports..."
+
+awsDssBundleUuids=""
+for item in ${awsDssBundleFqids}; do
+  if [ -n "$awsDssBundleUuids" ]; then
+    awsDssBundleUuids+=$'\n'
+  fi
+  awsDssBundleUuids+=$(echo $item | sed 's/\..*$//')
 done
 
-echo "$dssBundleUuids" | uniq | sort > dss-bundle-uuids.txt
+echo "$awsDssBundleUuids" | uniq | sort > aws-dss-bundle-uuids.txt
 
-diff -Bwy --suppress-common-lines ingest-bundle-uuids.txt dss-bundle-uuids.txt > diff-report.txt
+gcpDssBundleUuids=""
+for item in ${gcpDssBundleFqids}; do
+  if [ -n "$gcpDssBundleUuids" ]; then
+    gcpDssBundleUuids+=$'\n'
+  fi
+  gcpDssBundleUuids+=$(echo $item | sed 's/\..*$//')
+done
+
+echo "$gcpDssBundleUuids" | uniq | sort > gcp-dss-bundle-uuids.txt
+
+diff -Bwy --suppress-common-lines ingest-bundle-uuids.txt aws-dss-bundle-uuids.txt > ingest-aws.dss-diff-report.txt
+diff -Bwy --suppress-common-lines ingest-bundle-uuids.txt gcp-dss-bundle-uuids.txt > ingest-gcp.dss-diff-report.txt
+diff -Bwy --suppress-common-lines aws-dss-bundle-uuids.txt gcp-dss-bundle-uuids.txt > aws-gcp-dss-diff-report.txt
 printf "done!\n"
